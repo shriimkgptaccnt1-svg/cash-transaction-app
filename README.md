@@ -1,10 +1,10 @@
-# Cash Book
+# Cash
 
 A small Android app for writing down household cash expenses, with a monthly dashboard.
 
 ## Install
 
-Download **[releases/CashBook.apk](releases/CashBook.apk)** on your phone and open it. Android will ask you to allow installs from your browser or file manager the first time.
+Download **[releases/Cash.apk](releases/Cash.apk)** on your phone and open it. Android will ask you to allow installs from your browser or file manager the first time.
 
 Needs Android 8.0 or newer.
 
