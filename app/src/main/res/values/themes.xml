@@ -1,0 +1,8 @@
+<resources>
+    <style name="Theme.CashBook" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/paper</item>
+    </style>
+    <color name="paper">#FBFCF8</color>
+    <color name="accent">#2F6B57</color>
+    <color name="paper_dark">#1B221E</color>
+</resources>
