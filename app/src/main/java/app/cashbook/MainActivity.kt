@@ -47,12 +47,16 @@ fun App(store: ExpenseStore) {
                     expenses = expenses,
                     isActive = pager.settledPage == 0,
                     onAdd = { date: LocalDate, desc: String, paise: Long ->
-                        val id = (expenses.maxOfOrNull { it.id } ?: 0L) + 1
+                        val id = maxOf((expenses.maxOfOrNull { it.id } ?: 0L) + 1, System.currentTimeMillis())
                         expenses.add(Expense(id, date, desc, paise))
                         store.save(expenses)
                     },
                     onDelete = { e ->
                         expenses.removeAll { it.id == e.id }
+                        store.save(expenses)
+                    },
+                    onRestore = { e ->
+                        if (expenses.none { it.id == e.id }) expenses.add(e)
                         store.save(expenses)
                     },
                 )

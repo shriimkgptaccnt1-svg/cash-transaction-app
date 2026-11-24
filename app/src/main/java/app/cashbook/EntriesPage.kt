@@ -3,7 +3,6 @@ package app.cashbook
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,11 +20,12 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.SelectableDates
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -47,6 +47,9 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.addPathNodes
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.SpanStyle
@@ -74,6 +77,7 @@ private val DAY_FMT = DateTimeFormatter.ofPattern("dd MMM")
 private val MONTH_FMT = DateTimeFormatter.ofPattern("MMMM yyyy")
 private val DATE_COL = 58.dp
 private val AMT_COL = 84.dp
+private val DEL_COL = 44.dp
 private const val TABULAR = "tnum"
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -83,6 +87,7 @@ fun EntriesPage(
     isActive: Boolean,
     onAdd: (LocalDate, String, Long) -> Unit,
     onDelete: (Expense) -> Unit,
+    onRestore: (Expense) -> Unit,
 ) {
     val p = LocalPalette.current
     // Newest first, drawn bottom-up (reverseLayout), so the newest row sits directly above the entry row
@@ -92,23 +97,27 @@ fun EntriesPage(
     }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
-    var toDelete by remember { mutableStateOf<Expense?>(null) }
+    // The last deleted row, kept for 5 seconds so it can be restored with Undo.
+    var undo by remember { mutableStateOf<Expense?>(null) }
+    LaunchedEffect(undo) { if (undo != null) { delay(5000); undo = null } }
 
     Column(Modifier.fillMaxSize()) {
         // Column headers
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+            Modifier.fillMaxWidth().padding(start = 4.dp, end = 16.dp, top = 10.dp, bottom = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            Spacer(Modifier.width(DEL_COL))
             HeaderText("Date", Modifier.width(DATE_COL))
             HeaderText("Description", Modifier.weight(1f))
             HeaderText("Amount", Modifier.width(AMT_COL), TextAlign.End)
         }
         HorizontalDivider(color = p.line)
 
+        Box(Modifier.weight(1f).fillMaxWidth()) {
         LazyColumn(
             state = listState,
-            modifier = Modifier.weight(1f).fillMaxWidth(),
+            modifier = Modifier.fillMaxSize(),
             reverseLayout = true,
         ) {
             if (sorted.isEmpty()) {
@@ -125,10 +134,14 @@ fun EntriesPage(
                     Row(
                         Modifier
                             .fillMaxWidth()
-                            .combinedClickable(onClick = {}, onLongClick = { toDelete = e })
-                            .padding(horizontal = 16.dp, vertical = 11.dp),
+                            .padding(start = 4.dp, end = 16.dp, top = 2.dp, bottom = 2.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
+                        // Bin at the far left, away from the thumb. Deletes at once; Undo brings it back.
+                        IconButton(onClick = { onDelete(e); undo = e }, modifier = Modifier.size(DEL_COL)) {
+                            Icon(BinIcon, contentDescription = "Delete ${e.desc}",
+                                tint = p.del, modifier = Modifier.size(21.dp))
+                        }
                         Text(e.date.format(DAY_FMT), color = p.muted, fontSize = 13.sp,
                             style = numStyle(), modifier = Modifier.width(DATE_COL))
                         Text(e.desc, color = p.ink, fontSize = 15.sp, maxLines = 1,
@@ -146,10 +159,14 @@ fun EntriesPage(
                         Text(
                             e.date.format(MONTH_FMT).uppercase(),
                             color = p.muted, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp,
-                            modifier = Modifier.fillMaxWidth().padding(start = 16.dp, top = 14.dp, bottom = 4.dp),
+                            modifier = Modifier.fillMaxWidth().padding(start = 4.dp + DEL_COL, top = 14.dp, bottom = 4.dp),
                         )
                     }
                 }
+            }
+        }
+            undo?.let { e ->
+                UndoBar(e, Modifier.align(Alignment.BottomCenter)) { onRestore(e); undo = null }
             }
         }
 
@@ -163,22 +180,36 @@ fun EntriesPage(
             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("Swipe left for dashboard  ·  Long-press a row to delete", color = p.muted, fontSize = 11.sp,
+            Text("Swipe left for dashboard", color = p.muted, fontSize = 11.sp,
                 modifier = Modifier.weight(1f))
             PageDots(0)
         }
     }
+}
 
-    toDelete?.let { e ->
-        AlertDialog(
-            onDismissRequest = { toDelete = null },
-            title = { Text("Delete this expense?") },
-            text = { Text("${e.date.format(DAY_FMT)} · ${e.desc} · ${formatRupees(e.paise)}") },
-            confirmButton = { TextButton(onClick = { onDelete(e); toDelete = null }) { Text("Delete", color = p.warn) } },
-            dismissButton = { TextButton(onClick = { toDelete = null }) { Text("Cancel") } },
-        )
+@Composable
+private fun UndoBar(e: Expense, modifier: Modifier, onUndo: () -> Unit) {
+    val p = LocalPalette.current
+    Row(
+        modifier.padding(8.dp).fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(p.ink)
+            .padding(start = 16.dp, end = 4.dp, top = 2.dp, bottom = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("${e.desc} ${formatRupees(e.paise)} deleted", color = p.paper, fontSize = 14.sp, maxLines = 1,
+            overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+        TextButton(onClick = onUndo) {
+            Text("UNDO", color = p.undo, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+        }
     }
 }
+
+/** Solid bin: lid with handle, tapered can, two cut-out ribs. */
+val BinIcon: ImageVector = ImageVector.Builder("Bin", 24.dp, 24.dp, 24f, 24f).addPath(
+    pathData = addPathNodes(
+        "M9.3 3.5h5.4c.6 0 1.1.5 1.1 1.1V6H20a1 1 0 1 1 0 2h-.8l-.9 10.6A2.6 2.6 0 0 1 15.7 21H8.3a2.6 2.6 0 0 1-2.6-2.4L4.8 8H4a1 1 0 1 1 0-2h4.2V4.6c0-.6.5-1.1 1.1-1.1Zm.9 2.5h3.6v-.6h-3.6V6Zm-.1 5a.9.9 0 0 0-.9.9v4.2a.9.9 0 1 0 1.8 0v-4.2a.9.9 0 0 0-.9-.9Zm3.8 0a.9.9 0 0 0-.9.9v4.2a.9.9 0 1 0 1.8 0v-4.2a.9.9 0 0 0-.9-.9Z"
+    ),
+    fill = SolidColor(Color.Black),
+).build()
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -241,9 +272,10 @@ private fun EntryRow(isActive: Boolean, onAdd: (LocalDate, String, Long) -> Unit
     Column(Modifier.fillMaxWidth().background(p.accentSoft)) {
         Box(Modifier.fillMaxWidth().height(2.dp).background(p.accent))
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+            Modifier.fillMaxWidth().padding(start = 4.dp, end = 16.dp, top = 12.dp, bottom = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            Spacer(Modifier.width(DEL_COL))
             // Date cell: autofilled with today, tap to change.
             Column(
                 Modifier.width(DATE_COL).clip(androidx.compose.foundation.shape.RoundedCornerShape(6.dp))
@@ -314,7 +346,7 @@ private fun EntryRow(isActive: Boolean, onAdd: (LocalDate, String, Long) -> Unit
         }
         message?.let {
             Text(it, color = if (it.startsWith("Saved")) p.accent else p.warn, fontSize = 12.sp,
-                modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp))
+                modifier = Modifier.padding(start = 4.dp + DEL_COL, end = 16.dp, bottom = 8.dp))
         }
     }
 
