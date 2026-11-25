@@ -88,6 +88,7 @@ fun EntriesPage(
     onAdd: (LocalDate, String, Long) -> Unit,
     onDelete: (Expense) -> Unit,
     onRestore: (Expense) -> Unit,
+    onUpdate: (Expense) -> Unit,
 ) {
     val p = LocalPalette.current
     // Newest first, drawn bottom-up (reverseLayout), so the newest row sits directly above the entry row
@@ -100,6 +101,11 @@ fun EntriesPage(
     // The last deleted row, kept for 5 seconds so it can be restored with Undo.
     var undo by remember { mutableStateOf<Expense?>(null) }
     LaunchedEffect(undo) { if (undo != null) { delay(5000); undo = null } }
+    // Which saved row is being edited, and which cell was tapped (1 = description, 2 = amount).
+    var editing by remember { mutableStateOf<Pair<Long, Int>?>(null) }
+    var datePickFor by remember { mutableStateOf<Expense?>(null) }
+    // Bumped to send the cursor back to the entry row after an edit is finished.
+    var refocusEntry by remember { mutableStateOf(0) }
 
     Column(Modifier.fillMaxSize()) {
         // Column headers
@@ -142,12 +148,27 @@ fun EntriesPage(
                             Icon(BinIcon, contentDescription = "Delete ${e.desc}",
                                 tint = p.del, modifier = Modifier.size(21.dp))
                         }
-                        Text(e.date.format(DAY_FMT), color = p.muted, fontSize = 13.sp,
-                            style = numStyle(), modifier = Modifier.width(DATE_COL))
-                        Text(e.desc, color = p.ink, fontSize = 15.sp, maxLines = 1,
-                            overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                        Text(formatRupees(e.paise), color = p.ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
-                            style = numStyle(), textAlign = TextAlign.End, modifier = Modifier.width(AMT_COL))
+                        // Every cell is tappable: date opens the calendar, the others become editable.
+                        Text(e.date.format(DAY_FMT), color = p.muted, fontSize = 13.sp, style = numStyle(),
+                            modifier = Modifier.width(DATE_COL).clip(RoundedCornerShape(6.dp))
+                                .clickable { datePickFor = e }.padding(vertical = 10.dp))
+                        val ed = editing
+                        if (ed != null && ed.first == e.id) {
+                            EditCells(
+                                e = e, startField = ed.second, onUpdate = onUpdate,
+                                modifier = Modifier.weight(1f),
+                                onFinish = { byKeyboard ->
+                                    if (editing?.first == e.id) editing = null
+                                    if (byKeyboard) refocusEntry++
+                                },
+                            )
+                        } else {
+                            Text(e.desc, color = p.ink, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f).clickable { editing = e.id to 1 }.padding(vertical = 10.dp))
+                            Text(formatRupees(e.paise), color = p.ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+                                style = numStyle(), textAlign = TextAlign.End,
+                                modifier = Modifier.width(AMT_COL).clickable { editing = e.id to 2 }.padding(vertical = 10.dp))
+                        }
                     }
                     HorizontalDivider(color = p.line)
                 }
@@ -170,7 +191,7 @@ fun EntriesPage(
             }
         }
 
-        EntryRow(isActive = isActive, onAdd = { d, desc, paise ->
+        EntryRow(isActive = isActive, refocus = refocusEntry, onAdd = { d, desc, paise ->
             onAdd(d, desc, paise)
             scope.launch { listState.scrollToItem(0) }
         })
@@ -185,6 +206,103 @@ fun EntriesPage(
             PageDots(0)
         }
     }
+
+    datePickFor?.let { e ->
+        DatePickDialog(e.date) { d ->
+            if (d != null && d != e.date) onUpdate(e.copy(date = d))
+            datePickFor = null
+            refocusEntry++
+        }
+    }
+}
+
+/** Description and amount of a saved row, opened for typing. Valid changes are saved as you type. */
+@Composable
+private fun EditCells(
+    e: Expense, startField: Int, onUpdate: (Expense) -> Unit, modifier: Modifier, onFinish: (byKeyboard: Boolean) -> Unit,
+) {
+    val p = LocalPalette.current
+    val descFocus = remember { FocusRequester() }
+    val amtFocus = remember { FocusRequester() }
+    var desc by remember { mutableStateOf(TextFieldValue(e.desc, TextRange(e.desc.length))) }
+    val startAmt = (e.paise / 100).toString() + if (e.paise % 100 != 0L) "." + (e.paise % 100).toString().padStart(2, '0') else ""
+    var amount by remember { mutableStateOf(TextFieldValue(startAmt, TextRange(startAmt.length))) }
+    var hadFocus by remember { mutableStateOf(false) }
+    var descHas by remember { mutableStateOf(false) }
+    var amtHas by remember { mutableStateOf(false) }
+    val latest by androidx.compose.runtime.rememberUpdatedState(e)
+
+    LaunchedEffect(Unit) { (if (startField == 2) amtFocus else descFocus).requestFocus() }
+    // The edit ends only when neither field has had the cursor for a moment. Moving between the two
+    // fields (Next) passes through a brief no-focus state, which must not count as leaving.
+    LaunchedEffect(descHas, amtHas) {
+        if (descHas || amtHas) hadFocus = true
+        else if (hadFocus) { delay(300); onFinish(false) }
+    }
+
+    Row(
+        modifier.clip(RoundedCornerShape(8.dp)).background(p.accentSoft).padding(horizontal = 8.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        val style = TextStyle(color = p.ink, fontSize = 15.sp)
+        BasicTextField(
+            value = desc,
+            onValueChange = {
+                desc = it
+                val t = it.text.trim()
+                if (t.isNotEmpty() && t != latest.desc) onUpdate(latest.copy(desc = t))
+            },
+            singleLine = true, textStyle = style, cursorBrush = SolidColor(p.accent),
+            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences,
+                autoCorrectEnabled = false, imeAction = ImeAction.Next),
+            keyboardActions = KeyboardActions(onNext = { amtFocus.requestFocus() }),
+            modifier = Modifier.weight(1f).padding(end = 6.dp).focusRequester(descFocus)
+                .onFocusChanged { descHas = it.isFocused },
+        )
+        Text("₹", color = p.ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+        BasicTextField(
+            value = amount,
+            onValueChange = { v ->
+                if (v.text.matches(Regex("^\\d{0,7}(\\.\\d{0,2})?$"))) {
+                    amount = v
+                    parsePaise(v.text)?.let { if (it != latest.paise) onUpdate(latest.copy(paise = it)) }
+                }
+            },
+            singleLine = true,
+            textStyle = style.copy(fontWeight = FontWeight.SemiBold, textAlign = TextAlign.End, fontFeatureSettings = TABULAR),
+            cursorBrush = SolidColor(p.accent),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(onDone = { onFinish(true) }),
+            modifier = Modifier.width(AMT_COL - 22.dp).focusRequester(amtFocus)
+                .onFocusChanged { amtHas = it.isFocused },
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DatePickDialog(initial: LocalDate, onClose: (LocalDate?) -> Unit) {
+    val utcMillis = { d: LocalDate -> d.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli() }
+    val state = rememberDatePickerState(
+        initialSelectedDateMillis = utcMillis(initial),
+        selectableDates = object : SelectableDates {
+            override fun isSelectableDate(utcTimeMillis: Long) = utcTimeMillis <= utcMillis(LocalDate.now())
+        },
+    )
+    DatePickerDialog(
+        onDismissRequest = { onClose(null) },
+        confirmButton = {
+            TextButton(onClick = {
+                onClose(state.selectedDateMillis?.let { Instant.ofEpochMilli(it).atZone(ZoneOffset.UTC).toLocalDate() })
+            }) { Text("OK") }
+        },
+        dismissButton = {
+            Row {
+                TextButton(onClick = { onClose(LocalDate.now().minusDays(1)) }) { Text("Yesterday") }
+                TextButton(onClick = { onClose(LocalDate.now()) }) { Text("Today") }
+            }
+        },
+    ) { DatePicker(state = state) }
 }
 
 @Composable
@@ -213,7 +331,7 @@ val BinIcon: ImageVector = ImageVector.Builder("Bin", 24.dp, 24.dp, 24f, 24f).ad
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun EntryRow(isActive: Boolean, onAdd: (LocalDate, String, Long) -> Unit) {
+private fun EntryRow(isActive: Boolean, refocus: Int, onAdd: (LocalDate, String, Long) -> Unit) {
     val p = LocalPalette.current
     val keyboard = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
@@ -240,7 +358,7 @@ private fun EntryRow(isActive: Boolean, onAdd: (LocalDate, String, Long) -> Unit
     }
 
     // Opening the sheet puts the cursor in Description and raises the keyboard.
-    LaunchedEffect(isActive) {
+    LaunchedEffect(isActive, refocus) {
         if (isActive) {
             delay(150)
             descFocus.requestFocus()
@@ -351,33 +469,12 @@ private fun EntryRow(isActive: Boolean, onAdd: (LocalDate, String, Long) -> Unit
     }
 
     if (showPicker) {
-        val utcMillis = { d: LocalDate -> d.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli() }
-        val state = rememberDatePickerState(
-            initialSelectedDateMillis = utcMillis(date),
-            selectableDates = object : SelectableDates {
-                override fun isSelectableDate(utcTimeMillis: Long) = utcTimeMillis <= utcMillis(LocalDate.now())
-            },
-        )
-        fun close(d: LocalDate?) {
+        DatePickDialog(date) { d ->
             if (d != null) pickedDay = if (d == LocalDate.now()) Long.MIN_VALUE else d.toEpochDay()
             showPicker = false
             descFocus.requestFocus()
             keyboard?.show()
         }
-        DatePickerDialog(
-            onDismissRequest = { close(null) },
-            confirmButton = {
-                TextButton(onClick = {
-                    close(state.selectedDateMillis?.let { Instant.ofEpochMilli(it).atZone(ZoneOffset.UTC).toLocalDate() })
-                }) { Text("OK") }
-            },
-            dismissButton = {
-                Row {
-                    TextButton(onClick = { close(LocalDate.now().minusDays(1)) }) { Text("Yesterday") }
-                    TextButton(onClick = { close(LocalDate.now()) }) { Text("Today") }
-                }
-            },
-        ) { DatePicker(state = state) }
     }
 }
 

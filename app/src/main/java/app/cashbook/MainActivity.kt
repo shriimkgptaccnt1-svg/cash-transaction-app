@@ -16,6 +16,9 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.focusGroup
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 
@@ -28,6 +31,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
 fun App(store: ExpenseStore) {
     val p = LocalPalette.current
@@ -55,13 +59,21 @@ fun App(store: ExpenseStore) {
                         expenses.removeAll { it.id == e.id }
                         store.save(expenses)
                     },
+                    onUpdate = { e ->
+                        val i = expenses.indexOfFirst { it.id == e.id }
+                        if (i >= 0) { expenses[i] = e; store.save(expenses) }
+                    },
                     onRestore = { e ->
                         if (expenses.none { it.id == e.id }) expenses.add(e)
                         store.save(expenses)
                     },
                 )
             } else {
-                DashboardPage(expenses)
+                // Keyboard focus never moves into the dashboard on its own, so it can't pull the
+                // pager away from the sheet while you are typing.
+                Box(Modifier.focusGroup().focusProperties { enter = { FocusRequester.Cancel } }) {
+                    DashboardPage(expenses)
+                }
             }
         }
     }

@@ -14,6 +14,7 @@ Needs Android 8.0 or newer.
 - **Description autofill:** type `f` and it fills in **Food**, type `l` and it fills in **Laundry**. Press *Next* to keep the suggestion. Keep typing something else and the suggestion disappears.
 - **Amount:** *Next* moves to the amount. Press *Done* on the keyboard to save the row. A fresh row opens with today's date.
 - **Date:** tap the date in the entry row to pick a different day (or *Yesterday*/*Today*).
+- **Edit a saved row:** tap its date to pick another day, or tap its description or amount to change it. Changes save as you type; *Next* moves to the amount and *Done* finishes.
 - **Delete:** tap the red bin at the left of a row. It deletes at once; tap **UNDO** within 5 seconds to bring it back.
 - **Dashboard:** swipe left. It shows the month's total, the comparison with last month, Food / Laundry / Other totals, and a bar chart of spending per day (tap a bar to see that day's amount). Swipe right or press Back to return.
 
