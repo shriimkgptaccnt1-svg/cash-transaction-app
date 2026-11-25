@@ -16,7 +16,10 @@ Needs Android 8.0 or newer.
 - **Date:** tap the date in the entry row to pick a different day (or *Yesterday*/*Today*).
 - **Edit a saved row:** tap its date to pick another day, or tap its description or amount to change it. Changes save as you type; *Next* moves to the amount and *Done* finishes.
 - **Delete:** tap the red bin at the left of a row. It deletes at once; tap **UNDO** within 5 seconds to bring it back.
-- **Dashboard:** swipe left. It shows the month's total, the comparison with last month, Food / Laundry / Other totals, and a bar chart of spending per day (tap a bar to see that day's amount). Swipe right or press Back to return.
+- **Dashboard:** swipe left. A *Month / Year* switch sits at the top.
+  - *Month* view: tap the month box to pick any month (each month shows its total). It shows the total, the change from last month, Food / Laundry / Other, and a bar chart per day (tap a bar for that day's amount).
+  - *Year* view: tap the year box to pick a year. It shows the year's total, the change from last year, Food / Laundry / Other, the monthly average, the costliest month and a bar per month. Tap a month's bar, then tap it again to open that month.
+  - Swipe right or press Back to return.
 
 Data is stored only on the phone. Uninstalling the app deletes it.
 
